@@ -256,6 +256,12 @@ func NewZeroTier(option ZeroTierOption) (*ZeroTier, error) {
 		return nil, err
 	}
 	option.TCPFallbackMode = tcpFallbackMode.String()
+	normalizedProfile, err := dialer.NormalizeNetworkProfile(option.NetworkProfile)
+	if err != nil {
+		return nil, err
+	}
+	option.NetworkProfile = normalizedProfile
+	option.IPStack.NetworkProfile = option.NetworkProfile
 	option.IPStack.normalize()
 	if err = option.IPStack.validate(); err != nil {
 		return nil, err
@@ -296,14 +302,15 @@ func NewZeroTier(option ZeroTierOption) (*ZeroTier, error) {
 	}
 	outbound := &ZeroTier{
 		Base: NewBase(BaseOption{
-			Name:         option.Name,
-			Addr:         option.Network,
-			Type:         C.ZeroTier,
-			ProviderName: option.ProviderName,
-			UDP:          option.UDP,
-			Interface:    option.Interface,
-			RoutingMark:  option.RoutingMark,
-			Prefer:       option.IPVersion,
+			Name:           option.Name,
+			Addr:           option.Network,
+			Type:           C.ZeroTier,
+			ProviderName:   option.ProviderName,
+			UDP:            option.UDP,
+			Interface:      option.Interface,
+			RoutingMark:    option.RoutingMark,
+			Prefer:         option.IPVersion,
+			NetworkProfile: option.NetworkProfile,
 		}),
 		option:             option,
 		networkID:          networkID,

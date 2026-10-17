@@ -110,20 +110,27 @@ func NewMasque(option MasqueOption) (*Masque, error) {
 	if option.HandshakeTimeout < 0 {
 		return nil, errors.New("masque handshake timeout must be non-negative")
 	}
+	normalizedProfile, err := dialer.NormalizeNetworkProfile(option.NetworkProfile)
+	if err != nil {
+		return nil, err
+	}
+	option.NetworkProfile = normalizedProfile
+	option.IPStack.NetworkProfile = option.NetworkProfile
 	option.IPStack.normalize()
 	if err := option.IPStack.validate(); err != nil {
 		return nil, err
 	}
 	outbound := &Masque{
 		Base: NewBase(BaseOption{
-			Name:         option.Name,
-			Addr:         net.JoinHostPort(option.Server, strconv.Itoa(option.Port)),
-			Type:         C.Masque,
-			ProviderName: option.ProviderName,
-			UDP:          option.UDP,
-			Interface:    option.Interface,
-			RoutingMark:  option.RoutingMark,
-			Prefer:       option.IPVersion,
+			Name:           option.Name,
+			Addr:           net.JoinHostPort(option.Server, strconv.Itoa(option.Port)),
+			Type:           C.Masque,
+			ProviderName:   option.ProviderName,
+			UDP:            option.UDP,
+			Interface:      option.Interface,
+			RoutingMark:    option.RoutingMark,
+			Prefer:         option.IPVersion,
+			NetworkProfile: option.NetworkProfile,
 		}),
 		runLock: semaphore.NewWeighted(1),
 	}

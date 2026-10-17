@@ -6,7 +6,7 @@ on:
       version:
         description: "Version string embedded in binary"
         required: false
-        default: "v1.19.32-custom-winprof"
+        default: "v1.19.32-custom-winprof-r2"
 
 permissions:
   contents: read
@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   build-windows-amd64:
-    name: Build Windows AMD64 (v1.19.32-custom-winprof)
+    name: Build Windows AMD64 (v1.19.32-custom-winprof-r2)
     runs-on: windows-latest
     defaults:
       run:
@@ -59,14 +59,15 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist
-          go test -v ./component/dialer -run "TestNormalizeAndResolveNetworkProfile|TestNetworkProfileSocketApplication" 2>&1 | tee dist/test.log
+          go test -v ./component/dialer -run "TestNormalizeAndResolveNetworkProfile|TestNetworkProfileSocketApplication|TestPacketJA4TAndWindowsPacketRewriter" 2>&1 | tee dist/test.log
+          go test -v -tags "with_gvisor" ./adapter/outbound -run "TestL3IPStackWindowsNetworkProfileBeforeAfterJA4T" 2>&1 | tee -a dist/test.log
           go test -v ./config -run "TestParseNetworkProfileConfigAndBackwardCompatibility|TestSocks5OutboundWithWindowsNetworkProfileEndToEnd|TestValidateDialerProxies" 2>&1 | tee -a dist/test.log
 
       - name: Build Mihomo Windows AMD64
         run: |
           set -euo pipefail
           mkdir -p dist
-          VERSION="${{ github.event.inputs.version || 'v1.19.32-custom-winprof' }}"
+          VERSION="${{ github.event.inputs.version || 'v1.19.32-custom-winprof-r2' }}"
           BUILDTIME="$(date -u '+%Y-%m-%d %H:%M:%S UTC')"
           LDFLAGS="-X 'github.com/metacubex/mihomo/constant.Version=${VERSION}' -X 'github.com/metacubex/mihomo/constant.BuildTime=${BUILDTIME}' -w -s -buildid="
           echo "Building Mihomo ${VERSION} (${BUILDTIME})..."

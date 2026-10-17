@@ -89,6 +89,12 @@ func NewOpenVPN(option OpenVPNOption) (*OpenVPN, error) {
 	if option.HandshakeTimeout < 0 {
 		return nil, errors.New("openvpn handshake timeout must be non-negative")
 	}
+	normalizedProfile, err := dialer.NormalizeNetworkProfile(option.NetworkProfile)
+	if err != nil {
+		return nil, err
+	}
+	option.NetworkProfile = normalizedProfile
+	option.IPStack.NetworkProfile = option.NetworkProfile
 	transitionWindow, transitionWindowSet, err := openVPNTransitionWindow(option.TranWindow)
 	if err != nil {
 		return nil, err
@@ -128,16 +134,17 @@ func NewOpenVPN(option OpenVPNOption) (*OpenVPN, error) {
 
 	outbound := &OpenVPN{
 		Base: NewBase(BaseOption{
-			Name:         option.Name,
-			Addr:         cfg.RemoteAddress(),
-			Type:         C.OpenVPN,
-			ProviderName: option.ProviderName,
-			UDP:          true,
-			TFO:          option.TFO,
-			MPTCP:        option.MPTCP,
-			Interface:    option.Interface,
-			RoutingMark:  option.RoutingMark,
-			Prefer:       option.IPVersion,
+			Name:           option.Name,
+			Addr:           cfg.RemoteAddress(),
+			Type:           C.OpenVPN,
+			ProviderName:   option.ProviderName,
+			UDP:            true,
+			TFO:            option.TFO,
+			MPTCP:          option.MPTCP,
+			Interface:      option.Interface,
+			RoutingMark:    option.RoutingMark,
+			Prefer:         option.IPVersion,
+			NetworkProfile: option.NetworkProfile,
 		}),
 		option:  &option,
 		config:  cfg,

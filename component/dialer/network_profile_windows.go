@@ -83,12 +83,24 @@ func networkProfileControl(spec NetworkProfileSpec) controlFn {
 			}
 
 			if spec.TCPWindowSize > 0 {
-				if err := syscall.SetsockoptInt(handle, syscall.SOL_SOCKET, syscall.SO_RCVBUF, spec.TCPWindowSize); err == nil {
+				if strings.HasPrefix(network, "tcp") {
+					// On Windows 10/11 tcpip.sys, calling setsockopt(SO_RCVBUF, 64240) locks the
+					// receive buffer at 64KB and disables Receive Window Auto-Tuning, which lowers
+					// the SYN Window Scale option from WS=8 to WS=0. Preserving native Auto-Tuning
+					// keeps Windows's native SYN Window=64240 and WS=8 intact.
 					res.ActualRcvBuf = spec.TCPWindowSize
-					res.AppliedSocketOpts = append(res.AppliedSocketOpts, fmt.Sprintf("SO_RCVBUF=%d", spec.TCPWindowSize))
-				}
-				if v, err := getsockoptInt(handle, syscall.SOL_SOCKET, syscall.SO_RCVBUF); err == nil && v > 0 {
-					res.ActualRcvBuf = v
+					if v, err := getsockoptInt(handle, syscall.SOL_SOCKET, syscall.SO_RCVBUF); err == nil && v > 0 {
+						res.ActualRcvBuf = v
+					}
+					res.AppliedSocketOpts = append(res.AppliedSocketOpts, fmt.Sprintf("SO_RCVBUF=autotune(target=%d,WS=%d)", spec.TCPWindowSize, spec.TCPWindowScale))
+				} else {
+					if err := syscall.SetsockoptInt(handle, syscall.SOL_SOCKET, syscall.SO_RCVBUF, spec.TCPWindowSize); err == nil {
+						res.ActualRcvBuf = spec.TCPWindowSize
+						res.AppliedSocketOpts = append(res.AppliedSocketOpts, fmt.Sprintf("SO_RCVBUF=%d", spec.TCPWindowSize))
+					}
+					if v, err := getsockoptInt(handle, syscall.SOL_SOCKET, syscall.SO_RCVBUF); err == nil && v > 0 {
+						res.ActualRcvBuf = v
+					}
 				}
 			}
 

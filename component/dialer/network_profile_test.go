@@ -2,7 +2,9 @@ package dialer
 
 import (
 	"context"
+	"encoding/hex"
 	"net"
+	"runtime"
 	"testing"
 	"time"
 
@@ -93,12 +95,103 @@ func TestNetworkProfileSocketApplication(t *testing.T) {
 	require.Equal(t, 128, last.ConfiguredTTL)
 	require.Equal(t, 128, last.ActualTTL)
 	require.Equal(t, 64240, last.ConfiguredWindow)
-	require.GreaterOrEqual(t, last.ActualRcvBuf, 64240)
+	require.Greater(t, last.ActualRcvBuf, 0)
 	require.Equal(t, 1460, last.ConfiguredMSS)
 	require.Equal(t, 8, last.ConfiguredWS)
 	require.Equal(t, "2-1-3-1-1-4", last.TCPOptionsOrder)
 	require.Equal(t, "64240_2-1-3-1-1-4_1460_8", last.TargetJA4T)
 	require.Contains(t, last.AppliedSocketOpts, "IP_TTL=128")
-	require.Contains(t, last.AppliedSocketOpts, "SO_RCVBUF=64240")
+	if runtime.GOOS == "windows" {
+		require.Contains(t, last.AppliedSocketOpts, "IP_DONTFRAGMENT=1")
+		require.Contains(t, last.AppliedSocketOpts, "SO_RCVBUF=autotune(target=64240,WS=8)")
+	} else {
+		require.Contains(t, last.AppliedSocketOpts, "SO_RCVBUF=64240")
+	}
 	require.Contains(t, last.AppliedSocketOpts, "TCP_NODELAY=1")
+}
+
+func TestPacketJA4TAndWindowsPacketRewriter(t *testing.T) {
+	// 1. Construct a raw IPv4 + TCP SYN packet matching the exact Android/Linux SOCKS5 exit fingerprint
+	// measured at the target website: JA4T = 65535_2-4-8-1-3_1350_6 (TTL=64, DF=false, MSS=1350 (0x0546),
+	// Options: MSS(2), SACK(4), TS(8), NOP(1), WS(3)=6).
+	rawLinuxSYN, err := hex.DecodeString(
+		"4500003c12340000400600000a00000201010101" + // IPv4 header (20B): len=60, id=0x1234, flags=0 (DF=0), ttl=64, proto=6
+			"c35001bb1122334400000000a002ffff00000000" + // TCP header (20B): src=50000, dst=443, doff=10 (40B), flags=SYN(0x02), win=65535
+			"02040546" + // Option 2: MSS = 1350 (0x0546)
+			"0402" + // Option 4: SACK Permitted
+			"080a0102030400000000" + // Option 8: Timestamp
+			"01" + // Option 1: NOP
+			"030306", // Option 3: Window Scale = 6
+	)
+	require.NoError(t, err)
+	require.Len(t, rawLinuxSYN, 60)
+
+	beforeFp, ok := InspectPacketJA4T(rawLinuxSYN)
+	require.True(t, ok)
+	require.Equal(t, 4, beforeFp.IPVersion)
+	require.Equal(t, 64, beforeFp.TTL)
+	require.False(t, beforeFp.DontFragment)
+	require.True(t, beforeFp.IsSYN)
+	require.Equal(t, uint16(65535), beforeFp.WindowSize)
+	require.Equal(t, 1350, beforeFp.MSS)
+	require.Equal(t, 6, beforeFp.WindowScale)
+	require.True(t, beforeFp.HasTimestamp)
+	require.True(t, beforeFp.HasSACKPermitted)
+	require.Equal(t, "2-4-8-1-3", beforeFp.TCPOptionsOrder)
+	require.Equal(t, "65535_2-4-8-1-3_1350_6", beforeFp.JA4T)
+
+	// Rewrite in-place to Windows Network Profile (preserving path MSS=1350 since 1350 <= 1460)
+	buf := make([]byte, 128)
+	copy(buf, rawLinuxSYN)
+	newLen, modified := RewritePacketToWindowsProfile(buf, len(rawLinuxSYN), WindowsNetworkProfileSpec)
+	require.True(t, modified)
+	require.Equal(t, 52, newLen, "stripping 10-byte Timestamp and aligning to 12-byte Windows options shrinks SYN from 60B to 52B")
+
+	afterFp, ok := InspectPacketJA4T(buf[:newLen])
+	require.True(t, ok)
+	require.Equal(t, 128, afterFp.TTL)
+	require.True(t, afterFp.DontFragment)
+	require.True(t, afterFp.IsSYN)
+	require.Equal(t, uint8(0x02), afterFp.TCPFlags)
+	require.Equal(t, uint16(64240), afterFp.WindowSize)
+	require.Equal(t, 1350, afterFp.MSS)
+	require.Equal(t, 8, afterFp.WindowScale)
+	require.False(t, afterFp.HasTimestamp, "Windows SYN must not include TCP Timestamp option")
+	require.True(t, afterFp.HasSACKPermitted)
+	require.Equal(t, "2-1-3-1-1-4", afterFp.TCPOptionsOrder)
+	require.Equal(t, "64240_2-1-3-1-1-4_1350_8", afterFp.JA4T)
+	require.True(t, afterFp.HeaderChecksumValid, "rewritten IPv4 header checksum must be valid")
+	require.True(t, afterFp.TCPChecksumValid, "rewritten TCP checksum must be valid")
+
+	// 2. Construct a raw IPv4 + TCP SYN packet with MTU=1500 (MSS=1460) and mipstack's default layout (2-4-1-3-1-1-8, ECE|CWR)
+	rawMipstackSYN, err := hex.DecodeString(
+		"4500003c43214000400600000a00000201010101" + // IPv4: len=60, DF=1, ttl=64
+			"c35101bb1122334400000000a0c2ffff00000000" + // TCP: doff=10, flags=SYN|ECE|CWR(0xc2), win=65535
+			"020405b4" + // Option 2: MSS = 1460 (0x05b4)
+			"0402" + // Option 4: SACK Permitted
+			"01" + // Option 1: NOP
+			"030308" + // Option 3: Window Scale = 8
+			"0101" + // Option 1, 1: NOP, NOP
+			"080a0102030400000000", // Option 8: Timestamp
+	)
+	require.NoError(t, err)
+	beforeMips, ok := InspectPacketJA4T(rawMipstackSYN)
+	require.True(t, ok)
+	require.Equal(t, "65535_2-4-1-3-1-1-8_1460_8", beforeMips.JA4T)
+
+	copy(buf, rawMipstackSYN)
+	newLen2, modified2 := RewritePacketToWindowsProfile(buf, len(rawMipstackSYN), WindowsNetworkProfileSpec)
+	require.True(t, modified2)
+	require.Equal(t, 52, newLen2)
+
+	afterMips, ok := InspectPacketJA4T(buf[:newLen2])
+	require.True(t, ok)
+	require.Equal(t, 128, afterMips.TTL)
+	require.True(t, afterMips.DontFragment)
+	require.Equal(t, uint8(0x02), afterMips.TCPFlags)
+	require.Equal(t, "64240_2-1-3-1-1-4_1460_8", afterMips.JA4T)
+	require.True(t, afterMips.HeaderChecksumValid)
+	require.True(t, afterMips.TCPChecksumValid)
+	t.Logf("Verified L3/L4 SYN Rewrite: Linux SOCKS5 (%s -> %s), mipstack (%s -> %s)",
+		beforeFp.JA4T, afterFp.JA4T, beforeMips.JA4T, afterMips.JA4T)
 }

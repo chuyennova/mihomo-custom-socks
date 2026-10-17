@@ -143,6 +143,7 @@ type AmneziaWGOption struct {
 type IPStackOption struct {
 	Mode                 string `proxy:"mode,omitempty"`
 	CongestionController string `proxy:"congestion-controller,omitempty"`
+	NetworkProfile       string `proxy:"-"`
 }
 
 func (o *IPStackOption) normalize() {
@@ -189,21 +190,72 @@ type ipStack interface {
 	Close() error
 }
 
+type networkProfileIPStack struct {
+	ipStack
+	spec dialer.NetworkProfileSpec
+}
+
+func (s *networkProfileIPStack) Read(buffers [][]byte, sizes []int, offset int) (int, error) {
+	n, err := s.ipStack.Read(buffers, sizes, offset)
+	for i := 0; i < n; i++ {
+		if i < len(sizes) && sizes[i] > 0 && offset >= 0 && offset+sizes[i] <= len(buffers[i]) {
+			newLen, _ := dialer.RewritePacketToWindowsProfile(buffers[i][offset:], sizes[i], s.spec)
+			sizes[i] = newLen
+		}
+	}
+	return n, err
+}
+
+type networkProfileWireguardDevice struct {
+	*networkProfileIPStack
+	wgDevice wireguardDevice
+}
+
+func (d *networkProfileWireguardDevice) File() *os.File {
+	return d.wgDevice.File()
+}
+
+func (d *networkProfileWireguardDevice) Events() <-chan tun.Event {
+	return d.wgDevice.Events()
+}
+
+func wrapIPStackWithNetworkProfile(rawStack ipStack, spec dialer.NetworkProfileSpec) ipStack {
+	wrapped := &networkProfileIPStack{
+		ipStack: rawStack,
+		spec:    spec,
+	}
+	if wgDev, ok := rawStack.(wireguardDevice); ok {
+		return &networkProfileWireguardDevice{
+			networkProfileIPStack: wrapped,
+			wgDevice:              wgDev,
+		}
+	}
+	return wrapped
+}
+
 // newIPStack constructs the selected userspace IP stack.
 func newIPStack(option IPStackOption, localAddresses []netip.Prefix, mtu uint32) (ipStack, error) {
 	mode := option.Mode
 	if mode == ipStackAuto {
 		mode = ipStackMips
 	}
+	spec, profileActive := dialer.ResolveNetworkProfile(option.NetworkProfile)
+
+	var rawStack ipStack
+	var err error
 	switch mode {
 	case ipStackGVisor:
-		return wireguard.NewStackDevice(localAddresses, mtu)
+		rawStack, err = wireguard.NewStackDevice(localAddresses, mtu)
 	case ipStackMips:
-		return mipstack.New(mipstack.Config{
+		cc := option.CongestionController
+		if profileActive && cc == "" {
+			cc = mipstack.CongestionControlCUBIC
+		}
+		cfg := mipstack.Config{
 			LocalAddresses: localAddresses,
 			MTU:            mtu,
 			TCP: mipstack.TCPSocketDefaults{
-				CongestionControl: option.CongestionController,
+				CongestionControl: cc,
 				// Align with sing-wireguard: enable keepalive with 15-second
 				// idle/interval timing and gVisor's default probe count.
 				KeepAlive: true,
@@ -216,10 +268,32 @@ func newIPStack(option IPStackOption, localAddresses []netip.Prefix, mtu uint32)
 				IPHeaderIncludedOnRead:  true,
 				IPHeaderIncludedOnWrite: true,
 			},
-		})
+		}
+		if profileActive {
+			if spec.TCPWindowSize > 0 {
+				cfg.TCP.ReceiveBuffer = spec.TCPWindowSize
+				cfg.TCP.MaximumReceiveBuffer = 16 * 1024 * 1024
+			}
+			if spec.IPv4TTL > 0 {
+				cfg.UDP.HopLimit = spec.IPv4TTL
+				cfg.IP.HopLimit = spec.IPv4TTL
+			}
+			if spec.IPDontFragment {
+				cfg.UDP.PathMTUDiscovery = mipstack.PathMTUDiscoveryDo
+				cfg.IP.PathMTUDiscovery = mipstack.PathMTUDiscoveryDo
+			}
+		}
+		rawStack, err = mipstack.New(cfg)
 	default:
 		return nil, errors.New("invalid IP stack mode")
 	}
+	if err != nil {
+		return nil, err
+	}
+	if profileActive {
+		return wrapIPStackWithNetworkProfile(rawStack, spec), nil
+	}
+	return rawStack, nil
 }
 
 var _ ipStack = (*mipstack.Stack)(nil)
@@ -462,12 +536,13 @@ func NewWireGuard(option WireGuardOption) (*WireGuard, error) {
 	if mtu == 0 {
 		mtu = 1408
 	}
+	option.IPStack.NetworkProfile = option.NetworkProfile
 	if spec, ok := dialer.ResolveNetworkProfile(option.NetworkProfile); ok {
 		if option.IPStack.CongestionController == "" {
 			option.IPStack.CongestionController = mipstack.CongestionControlCUBIC
 		}
 		log.Infoln(
-			"[NetworkProfile] Outbound WireGuard L3 [%s] bound to profile=%s (L3 stack MTU=%d, CC=%s, target JA4T=%s)",
+			"[NetworkProfile] Outbound WireGuard L3 [%s] bound to profile=%s (L3 stack MTU=%d, CC=%s, L3/L4 SYN packet rewriter active, target JA4T=%s)",
 			option.Name,
 			spec.Name,
 			mtu,
