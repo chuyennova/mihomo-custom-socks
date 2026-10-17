@@ -1,0 +1,89 @@
+name: Build Mihomo Windows AMD64
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version string embedded in binary"
+        required: false
+        default: "v1.19.32"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: "${{ github.workflow }}-${{ github.ref }}"
+  cancel-in-progress: true
+
+jobs:
+  build-windows-amd64:
+    name: Build Windows AMD64 (v1.19.32)
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    env:
+      CGO_ENABLED: "0"
+      GOOS: "windows"
+      GOARCH: "amd64"
+      GOAMD64: "v1"
+      GOTOOLCHAIN: "local"
+      MSYS_NO_PATHCONV: "1"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go toolchain from go.mod
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: "go.mod"
+          cache: true
+
+      - name: Verify Go and Git environment
+        run: |
+          set -euo pipefail
+          go version
+          go env
+          echo "Commit SHA: $(git rev-parse HEAD)"
+
+      - name: Download and verify dependencies
+        run: |
+          set -euo pipefail
+          go mod download
+          go mod verify
+
+      - name: Build Mihomo Windows AMD64
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          VERSION="${{ github.event.inputs.version || 'v1.19.32' }}"
+          BUILDTIME="$(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+          LDFLAGS="-X 'github.com/metacubex/mihomo/constant.Version=${VERSION}' -X 'github.com/metacubex/mihomo/constant.BuildTime=${BUILDTIME}' -w -s -buildid="
+          echo "Building Mihomo ${VERSION} (${BUILDTIME})..."
+          go build -v -tags "with_gvisor" -trimpath -ldflags "${LDFLAGS}" -o dist/mihomo-windows-amd64.exe . 2>&1 | tee dist/build.log
+          ls -lh dist/mihomo-windows-amd64.exe
+
+      - name: Verify binary version and checksum
+        run: |
+          set -euo pipefail
+          ./dist/mihomo-windows-amd64.exe -v | tee dist/version.txt
+          grep -F "Mihomo Meta" dist/version.txt
+          grep -F "v1.19.32" dist/version.txt
+          grep -F "with_gvisor" dist/version.txt
+          sha256sum dist/mihomo-windows-amd64.exe | tee dist/sha256sum.txt
+
+      - name: Upload Windows AMD64 artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mihomo-windows-amd64-v1.19.32
+          path: |
+            dist/mihomo-windows-amd64.exe
+            dist/version.txt
+            dist/sha256sum.txt
+            dist/build.log
+          if-no-files-found: error
+          retention-days: 30
