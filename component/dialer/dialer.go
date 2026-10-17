@@ -132,6 +132,9 @@ func listenConfig(network, address string, rAddrPort netip.AddrPort, opt option)
 		if opt.routingMark != 0 {
 			bindMarkToListenConfig(opt.routingMark, lc, network, address)
 		}
+		if spec, ok := ResolveNetworkProfile(opt.networkProfile); ok {
+			bindNetworkProfileToListenConfig(spec, lc, network, address)
+		}
 	}
 
 	return lc, address, nil
@@ -182,6 +185,9 @@ func dialContext(ctx context.Context, network string, destination netip.Addr, po
 		}
 		if opt.routingMark != 0 {
 			bindMarkToDialer(opt.routingMark, dialer, network, destination)
+		}
+		if spec, ok := ResolveNetworkProfile(opt.networkProfile); ok {
+			bindNetworkProfileToDialer(spec, dialer, network, destination)
 		}
 		if opt.tfo && !DisableTFO {
 			return dialTFO(ctx, *dialer, network, address)

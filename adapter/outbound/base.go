@@ -27,49 +27,52 @@ type ProxyAdapter interface {
 }
 
 type Base struct {
-	name   string
-	addr   string
-	tp     C.AdapterType
-	pdName string
-	udp    bool
-	xudp   bool
-	tfo    bool
-	mpTcp  bool
-	iface  string
-	rmark  int
-	prefer C.DNSPrefer
-	dialer C.Dialer
-	id     uuid.UUID
+	name           string
+	addr           string
+	tp             C.AdapterType
+	pdName         string
+	udp            bool
+	xudp           bool
+	tfo            bool
+	mpTcp          bool
+	iface          string
+	rmark          int
+	prefer         C.DNSPrefer
+	networkProfile string
+	dialer         C.Dialer
+	id             uuid.UUID
 }
 
 type BaseOption struct {
-	Name         string
-	Addr         string
-	Type         C.AdapterType
-	ProviderName string
-	UDP          bool
-	XUDP         bool
-	TFO          bool
-	MPTCP        bool
-	Interface    string
-	RoutingMark  int
-	Prefer       C.DNSPrefer
+	Name           string
+	Addr           string
+	Type           C.AdapterType
+	ProviderName   string
+	UDP            bool
+	XUDP           bool
+	TFO            bool
+	MPTCP          bool
+	Interface      string
+	RoutingMark    int
+	Prefer         C.DNSPrefer
+	NetworkProfile string
 }
 
 func NewBase(opt BaseOption) *Base {
 	return &Base{
-		name:   opt.Name,
-		addr:   opt.Addr,
-		tp:     opt.Type,
-		pdName: opt.ProviderName,
-		udp:    opt.UDP,
-		xudp:   opt.XUDP,
-		tfo:    opt.TFO,
-		mpTcp:  opt.MPTCP,
-		iface:  opt.Interface,
-		rmark:  opt.RoutingMark,
-		prefer: opt.Prefer,
-		id:     utils.NewUUIDV4(),
+		name:           opt.Name,
+		addr:           opt.Addr,
+		tp:             opt.Type,
+		pdName:         opt.ProviderName,
+		udp:            opt.UDP,
+		xudp:           opt.XUDP,
+		tfo:            opt.TFO,
+		mpTcp:          opt.MPTCP,
+		iface:          opt.Interface,
+		rmark:          opt.RoutingMark,
+		prefer:         opt.Prefer,
+		networkProfile: opt.NetworkProfile,
+		id:             utils.NewUUIDV4(),
 	}
 }
 
@@ -116,7 +119,13 @@ func (b *Base) ProxyInfo() (info C.ProxyInfo) {
 	info.Interface = b.iface
 	info.RoutingMark = b.rmark
 	info.ProviderName = b.pdName
+	info.NetworkProfile = b.networkProfile
 	return
+}
+
+// NetworkProfile returns the proxy's configured network profile name, if any.
+func (b *Base) NetworkProfile() string {
+	return b.networkProfile
 }
 
 // IsL3Protocol implements C.ProxyAdapter
@@ -172,6 +181,10 @@ func (b *Base) DialOptions() (opts []dialer.Option) {
 		opts = append(opts, dialer.WithMPTCP(true))
 	}
 
+	if b.networkProfile != "" {
+		opts = append(opts, dialer.WithNetworkProfile(b.networkProfile))
+	}
+
 	return opts
 }
 
@@ -191,12 +204,13 @@ func (b *Base) Close() error {
 }
 
 type BasicOption struct {
-	TFO         bool        `proxy:"tfo,omitempty"`
-	MPTCP       bool        `proxy:"mptcp,omitempty"`
-	Interface   string      `proxy:"interface-name,omitempty"`
-	RoutingMark int         `proxy:"routing-mark,omitempty"`
-	IPVersion   C.DNSPrefer `proxy:"ip-version,omitempty"`
-	DialerProxy string      `proxy:"dialer-proxy,omitempty"` // don't apply this option into groups, but can set a group name in a proxy
+	TFO            bool        `proxy:"tfo,omitempty"`
+	MPTCP          bool        `proxy:"mptcp,omitempty"`
+	Interface      string      `proxy:"interface-name,omitempty"`
+	RoutingMark    int         `proxy:"routing-mark,omitempty"`
+	IPVersion      C.DNSPrefer `proxy:"ip-version,omitempty"`
+	DialerProxy    string      `proxy:"dialer-proxy,omitempty"` // don't apply this option into groups, but can set a group name in a proxy
+	NetworkProfile string      `proxy:"network-profile,omitempty"`
 
 	//
 	// The following parameters are used internally, assign value by the structure decoder are disallowed
@@ -207,6 +221,9 @@ type BasicOption struct {
 }
 
 func (b *BasicOption) NewDialer(opts []dialer.Option) C.Dialer {
+	if b.NetworkProfile != "" {
+		opts = append(opts, dialer.WithNetworkProfile(b.NetworkProfile))
+	}
 	cDialer := b.DialerForAPI
 	if cDialer == nil {
 		if b.DialerProxy != "" {

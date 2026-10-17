@@ -11,7 +11,9 @@ import (
 
 	N "github.com/metacubex/mihomo/common/net"
 	"github.com/metacubex/mihomo/component/ca"
+	"github.com/metacubex/mihomo/component/dialer"
 	C "github.com/metacubex/mihomo/constant"
+	"github.com/metacubex/mihomo/log"
 	"github.com/metacubex/mihomo/transport/socks5"
 
 	"github.com/metacubex/tls"
@@ -171,6 +173,12 @@ func (ss *Socks5) clientHandshakeContext(ctx context.Context, c net.Conn, addr s
 }
 
 func NewSocks5(option Socks5Option) (*Socks5, error) {
+	normalizedProfile, err := dialer.NormalizeNetworkProfile(option.NetworkProfile)
+	if err != nil {
+		return nil, err
+	}
+	option.NetworkProfile = normalizedProfile
+
 	var tlsConfig *tls.Config
 	if option.TLS {
 		var err error
@@ -191,16 +199,17 @@ func NewSocks5(option Socks5Option) (*Socks5, error) {
 
 	outbound := &Socks5{
 		Base: NewBase(BaseOption{
-			Name:         option.Name,
-			Addr:         net.JoinHostPort(option.Server, strconv.Itoa(option.Port)),
-			Type:         C.Socks5,
-			ProviderName: option.ProviderName,
-			UDP:          option.UDP,
-			TFO:          option.TFO,
-			MPTCP:        option.MPTCP,
-			Interface:    option.Interface,
-			RoutingMark:  option.RoutingMark,
-			Prefer:       option.IPVersion,
+			Name:           option.Name,
+			Addr:           net.JoinHostPort(option.Server, strconv.Itoa(option.Port)),
+			Type:           C.Socks5,
+			ProviderName:   option.ProviderName,
+			UDP:            option.UDP,
+			TFO:            option.TFO,
+			MPTCP:          option.MPTCP,
+			Interface:      option.Interface,
+			RoutingMark:    option.RoutingMark,
+			Prefer:         option.IPVersion,
+			NetworkProfile: option.NetworkProfile,
 		}),
 		option:         &option,
 		user:           option.UserName,
@@ -210,6 +219,21 @@ func NewSocks5(option Socks5Option) (*Socks5, error) {
 		tlsConfig:      tlsConfig,
 	}
 	outbound.dialer = option.NewDialer(outbound.DialOptions())
+	if spec, ok := dialer.ResolveNetworkProfile(option.NetworkProfile); ok {
+		log.Infoln(
+			"[NetworkProfile] Outbound SOCKS5 [%s] (%s) bound to profile=%s (target: TTL=%d, DF=%v, Win=%d, WS=%d, MSS=%d, Options=%s, JA4T=%s; Hop2 Client->SOCKS5 socket control active, Hop3 SOCKS5->Target TCP SYN is originated by SOCKS5 server kernel)",
+			option.Name,
+			outbound.Addr(),
+			spec.Name,
+			spec.IPv4TTL,
+			spec.IPDontFragment,
+			spec.TCPWindowSize,
+			spec.TCPWindowScale,
+			spec.TCPMSS,
+			spec.TCPOptionsOrder,
+			spec.TargetJA4T,
+		)
+	}
 	return outbound, nil
 }
 

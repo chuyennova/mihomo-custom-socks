@@ -31,16 +31,17 @@ func (f NetDialerFunc) DialContext(ctx context.Context, network, address string)
 }
 
 type option struct {
-	interfaceName string
-	fallbackBind  bool
-	addrReuse     bool
-	routingMark   int
-	network       int
-	prefer        int
-	tfo           bool
-	mpTcp         bool
-	resolver      resolver.Resolver
-	netDialer     NetDialer
+	interfaceName  string
+	fallbackBind   bool
+	addrReuse      bool
+	routingMark    int
+	network        int
+	prefer         int
+	tfo            bool
+	mpTcp          bool
+	networkProfile string
+	resolver       resolver.Resolver
+	netDialer      NetDialer
 }
 
 type Option func(opt *option)
@@ -106,6 +107,12 @@ func WithTFO(tfo bool) Option {
 func WithMPTCP(mpTcp bool) Option {
 	return func(opt *option) {
 		opt.mpTcp = mpTcp
+	}
+}
+
+func WithNetworkProfile(profile string) Option {
+	return func(opt *option) {
+		opt.networkProfile = profile
 	}
 }
 

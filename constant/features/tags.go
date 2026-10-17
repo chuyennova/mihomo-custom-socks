@@ -22,5 +22,6 @@ func Tags() (tags []string) {
 	if WithGVisor {
 		tags = append(tags, "with_gvisor")
 	}
+	tags = append(tags, "with_network_profile")
 	return
 }

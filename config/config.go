@@ -21,6 +21,7 @@ import (
 	"github.com/metacubex/mihomo/component/age"
 	"github.com/metacubex/mihomo/component/auth"
 	"github.com/metacubex/mihomo/component/cidr"
+	"github.com/metacubex/mihomo/component/dialer"
 	"github.com/metacubex/mihomo/component/fakeip"
 	"github.com/metacubex/mihomo/component/geodata"
 	"github.com/metacubex/mihomo/component/process"
@@ -53,6 +54,7 @@ type General struct {
 	IPv6              bool                    `json:"ipv6"`
 	Interface         string                  `json:"interface-name"`
 	RoutingMark       int                     `json:"routing-mark"`
+	NetworkProfile    string                  `json:"network-profile,omitempty"`
 	GeoXUrl           GeoXUrl                 `json:"geox-url"`
 	GeoAutoUpdate     bool                    `json:"geo-auto-update"`
 	GeoUpdateInterval int                     `json:"geo-update-interval"`
@@ -357,6 +359,7 @@ type RawExperimental struct {
 	QUICGoDisableGSO bool     `yaml:"quic-go-disable-gso" json:"quic-go-disable-gso"`
 	QUICGoDisableECN bool     `yaml:"quic-go-disable-ecn" json:"quic-go-disable-ecn"`
 	IP4PEnable       bool     `yaml:"dialer-ip4p-convert" json:"dialer-ip4p-convert"`
+	NetworkProfile   string   `yaml:"network-profile" json:"network-profile"`
 }
 
 type RawProfile struct {
@@ -433,6 +436,7 @@ type RawConfig struct {
 	Secret                        string                  `yaml:"secret" json:"secret"`
 	Interface                     string                  `yaml:"interface-name" json:"interface-name"`
 	RoutingMark                   int                     `yaml:"routing-mark" json:"routing-mark"`
+	NetworkProfile                string                  `yaml:"network-profile" json:"network-profile"`
 	Tunnels                       []LC.Tunnel             `yaml:"tunnels" json:"tunnels"`
 	GeoAutoUpdate                 bool                    `yaml:"geo-auto-update" json:"geo-auto-update"`
 	GeoUpdateInterval             int                     `yaml:"geo-update-interval" json:"geo-update-interval"`
@@ -761,6 +765,14 @@ func parseGeneral(cfg *RawConfig) (*General, error) {
 	if cfg.GlobalClientFingerprint != "" {
 		log.Errorln("The `global-client-fingerprint` configuration is removed, please set `client-fingerprint` directly on the proxy instead")
 	}
+	rawNetworkProfile := cfg.NetworkProfile
+	if rawNetworkProfile == "" {
+		rawNetworkProfile = cfg.Experimental.NetworkProfile
+	}
+	networkProfile, err := dialer.NormalizeNetworkProfile(rawNetworkProfile)
+	if err != nil {
+		return nil, err
+	}
 	return &General{
 		Inbound: Inbound{
 			Port:              cfg.Port,
@@ -778,12 +790,13 @@ func parseGeneral(cfg *RawConfig) (*General, error) {
 			InboundTfo:        cfg.InboundTfo,
 			InboundMPTCP:      cfg.InboundMPTCP,
 		},
-		UnifiedDelay: cfg.UnifiedDelay,
-		Mode:         cfg.Mode,
-		LogLevel:     cfg.LogLevel,
-		IPv6:         cfg.IPv6,
-		Interface:    cfg.Interface,
-		RoutingMark:  cfg.RoutingMark,
+		UnifiedDelay:   cfg.UnifiedDelay,
+		Mode:           cfg.Mode,
+		LogLevel:       cfg.LogLevel,
+		IPv6:           cfg.IPv6,
+		Interface:      cfg.Interface,
+		RoutingMark:    cfg.RoutingMark,
+		NetworkProfile: networkProfile,
 		GeoXUrl: GeoXUrl{
 			GeoIp:   cfg.GeoXUrl.GeoIp,
 			Mmdb:    cfg.GeoXUrl.Mmdb,

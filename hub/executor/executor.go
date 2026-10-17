@@ -153,12 +153,13 @@ func GetGeneral() *config.General {
 			InboundTfo:        inbound.Tfo(),
 			InboundMPTCP:      inbound.MPTCP(),
 		},
-		Mode:         tunnel.Mode(),
-		UnifiedDelay: adapter.UnifiedDelay.Load(),
-		LogLevel:     log.Level(),
-		IPv6:         !resolver.DisableIPv6,
-		Interface:    dialer.DefaultInterface.Load(),
-		RoutingMark:  int(dialer.DefaultRoutingMark.Load()),
+		Mode:           tunnel.Mode(),
+		UnifiedDelay:   adapter.UnifiedDelay.Load(),
+		LogLevel:       log.Level(),
+		IPv6:           !resolver.DisableIPv6,
+		Interface:      dialer.DefaultInterface.Load(),
+		RoutingMark:    int(dialer.DefaultRoutingMark.Load()),
+		NetworkProfile: dialer.DefaultNetworkProfile.Load(),
 		GeoXUrl: config.GeoXUrl{
 			GeoIp:   geodata.GeoIpUrl(),
 			Mmdb:    geodata.MmdbUrl(),
@@ -413,6 +414,23 @@ func updateGeneral(general *config.General, logging bool) {
 	dialer.DefaultRoutingMark.Store(int32(general.RoutingMark))
 	if logging && general.RoutingMark > 0 {
 		log.Infoln("Use routing mark: %#x", general.RoutingMark)
+	}
+
+	dialer.DefaultNetworkProfile.Store(general.NetworkProfile)
+	if logging && general.NetworkProfile != "" {
+		if spec, ok := dialer.ResolveNetworkProfile(general.NetworkProfile); ok {
+			log.Infoln(
+				"[NetworkProfile] Global profile enabled: %s (target: TTL=%d, DF=%v, Win=%d, WS=%d, MSS=%d, Options=%s, JA4T=%s)",
+				spec.Name,
+				spec.IPv4TTL,
+				spec.IPDontFragment,
+				spec.TCPWindowSize,
+				spec.TCPWindowScale,
+				spec.TCPMSS,
+				spec.TCPOptionsOrder,
+				spec.TargetJA4T,
+			)
+		}
 	}
 
 	iface.FlushCache()

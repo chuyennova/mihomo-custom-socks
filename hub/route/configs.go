@@ -57,6 +57,7 @@ type configSchema struct {
 	TcpConcurrent     *bool                    `json:"tcp-concurrent"`
 	FindProcessMode   *process.FindProcessMode `json:"find-process-mode"`
 	InterfaceName     *string                  `json:"interface-name"`
+	NetworkProfile    *string                  `json:"network-profile"`
 }
 
 type tunSchema struct {
@@ -365,6 +366,16 @@ func patchConfigs(w http.ResponseWriter, r *http.Request) {
 
 	if general.InterfaceName != nil {
 		dialer.DefaultInterface.Store(*general.InterfaceName)
+	}
+
+	if general.NetworkProfile != nil {
+		normProfile, err := dialer.NormalizeNetworkProfile(*general.NetworkProfile)
+		if err != nil {
+			render.Status(r, http.StatusBadRequest)
+			render.JSON(w, r, newError(err.Error()))
+			return
+		}
+		dialer.DefaultNetworkProfile.Store(normProfile)
 	}
 
 	ports := listener.GetPorts()

@@ -65,17 +65,19 @@ func (d *Direct) IsL3Protocol(metadata *C.Metadata) bool {
 }
 
 func NewDirectWithOption(option DirectOption) *Direct {
+	normProfile, _ := dialer.NormalizeNetworkProfile(option.NetworkProfile)
 	return &Direct{
 		Base: NewBase(BaseOption{
-			Name:         option.Name,
-			Type:         C.Direct,
-			ProviderName: option.ProviderName,
-			UDP:          true,
-			TFO:          option.TFO,
-			MPTCP:        option.MPTCP,
-			Interface:    option.Interface,
-			RoutingMark:  option.RoutingMark,
-			Prefer:       option.IPVersion,
+			Name:           option.Name,
+			Type:           C.Direct,
+			ProviderName:   option.ProviderName,
+			UDP:            true,
+			TFO:            option.TFO,
+			MPTCP:          option.MPTCP,
+			Interface:      option.Interface,
+			RoutingMark:    option.RoutingMark,
+			Prefer:         option.IPVersion,
+			NetworkProfile: normProfile,
 		}),
 		loopBack: loopback.NewDetector(),
 	}

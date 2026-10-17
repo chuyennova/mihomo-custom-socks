@@ -5,6 +5,7 @@ import (
 
 	"github.com/metacubex/mihomo/adapter/outbound"
 	"github.com/metacubex/mihomo/common/structure"
+	"github.com/metacubex/mihomo/component/dialer"
 	C "github.com/metacubex/mihomo/constant"
 )
 
@@ -13,6 +14,12 @@ func ParseProxy(mapping map[string]any, options ...ProxyOption) (C.Proxy, error)
 	proxyType, existType := mapping["type"].(string)
 	if !existType {
 		return nil, fmt.Errorf("missing type")
+	}
+
+	if rawProfile, existProfile := mapping["network-profile"]; existProfile && rawProfile != nil {
+		if _, err := dialer.NormalizeNetworkProfile(fmt.Sprint(rawProfile)); err != nil {
+			return nil, err
+		}
 	}
 
 	opt := applyProxyOptions(options...)

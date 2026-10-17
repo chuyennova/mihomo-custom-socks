@@ -6,7 +6,7 @@ on:
       version:
         description: "Version string embedded in binary"
         required: false
-        default: "v1.19.32"
+        default: "v1.19.32-custom-winprof"
 
 permissions:
   contents: read
@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   build-windows-amd64:
-    name: Build Windows AMD64 (v1.19.32)
+    name: Build Windows AMD64 (v1.19.32-custom-winprof)
     runs-on: windows-latest
     defaults:
       run:
@@ -55,11 +55,18 @@ jobs:
           go mod download
           go mod verify
 
+      - name: Run Windows Network Profile unit and integration tests
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          go test -v ./component/dialer -run "TestNormalizeAndResolveNetworkProfile|TestNetworkProfileSocketApplication" 2>&1 | tee dist/test.log
+          go test -v ./config -run "TestParseNetworkProfileConfigAndBackwardCompatibility|TestSocks5OutboundWithWindowsNetworkProfileEndToEnd|TestValidateDialerProxies" 2>&1 | tee -a dist/test.log
+
       - name: Build Mihomo Windows AMD64
         run: |
           set -euo pipefail
           mkdir -p dist
-          VERSION="${{ github.event.inputs.version || 'v1.19.32' }}"
+          VERSION="${{ github.event.inputs.version || 'v1.19.32-custom-winprof' }}"
           BUILDTIME="$(date -u '+%Y-%m-%d %H:%M:%S UTC')"
           LDFLAGS="-X 'github.com/metacubex/mihomo/constant.Version=${VERSION}' -X 'github.com/metacubex/mihomo/constant.BuildTime=${BUILDTIME}' -w -s -buildid="
           echo "Building Mihomo ${VERSION} (${BUILDTIME})..."
@@ -73,6 +80,7 @@ jobs:
           grep -F "Mihomo Meta" dist/version.txt
           grep -F "v1.19.32" dist/version.txt
           grep -F "with_gvisor" dist/version.txt
+          grep -F "with_network_profile" dist/version.txt
           sha256sum dist/mihomo-windows-amd64.exe | tee dist/sha256sum.txt
 
       - name: Upload Windows AMD64 artifact
@@ -84,6 +92,7 @@ jobs:
             dist/mihomo-windows-amd64.exe
             dist/version.txt
             dist/sha256sum.txt
+            dist/test.log
             dist/build.log
           if-no-files-found: error
           retention-days: 30

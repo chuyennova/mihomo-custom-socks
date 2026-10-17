@@ -2,7 +2,7 @@ package constant
 
 var (
 	Meta       = true
-	Version    = "1.10.0"
+	Version    = "v1.19.32-custom-winprof"
 	BuildTime  = "unknown time"
 	MihomoName = "mihomo"
 )

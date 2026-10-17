@@ -349,16 +349,23 @@ func (option WireGuardOption) Prefixes() ([]netip.Prefix, error) {
 }
 
 func NewWireGuard(option WireGuardOption) (*WireGuard, error) {
+	normalizedProfile, err := dialer.NormalizeNetworkProfile(option.NetworkProfile)
+	if err != nil {
+		return nil, err
+	}
+	option.NetworkProfile = normalizedProfile
+
 	outbound := &WireGuard{
 		Base: NewBase(BaseOption{
-			Name:         option.Name,
-			Addr:         net.JoinHostPort(option.Server, strconv.Itoa(option.Port)),
-			Type:         C.WireGuard,
-			ProviderName: option.ProviderName,
-			UDP:          option.UDP,
-			Interface:    option.Interface,
-			RoutingMark:  option.RoutingMark,
-			Prefer:       option.IPVersion,
+			Name:           option.Name,
+			Addr:           net.JoinHostPort(option.Server, strconv.Itoa(option.Port)),
+			Type:           C.WireGuard,
+			ProviderName:   option.ProviderName,
+			UDP:            option.UDP,
+			Interface:      option.Interface,
+			RoutingMark:    option.RoutingMark,
+			Prefer:         option.IPVersion,
+			NetworkProfile: option.NetworkProfile,
 		}),
 	}
 	outbound.dialer = option.NewDialer(outbound.DialOptions())
@@ -386,7 +393,6 @@ func NewWireGuard(option WireGuardOption) (*WireGuard, error) {
 		return nil, E.New("failed to create wireguard client bind")
 	}
 
-	var err error
 	outbound.localPrefixes, err = option.Prefixes()
 	if err != nil {
 		return nil, err
@@ -455,6 +461,19 @@ func NewWireGuard(option WireGuardOption) (*WireGuard, error) {
 	mtu := option.MTU
 	if mtu == 0 {
 		mtu = 1408
+	}
+	if spec, ok := dialer.ResolveNetworkProfile(option.NetworkProfile); ok {
+		if option.IPStack.CongestionController == "" {
+			option.IPStack.CongestionController = mipstack.CongestionControlCUBIC
+		}
+		log.Infoln(
+			"[NetworkProfile] Outbound WireGuard L3 [%s] bound to profile=%s (L3 stack MTU=%d, CC=%s, target JA4T=%s)",
+			option.Name,
+			spec.Name,
+			mtu,
+			option.IPStack.CongestionController,
+			spec.TargetJA4T,
+		)
 	}
 	option.IPStack.normalize()
 	if err = option.IPStack.validate(); err != nil {
