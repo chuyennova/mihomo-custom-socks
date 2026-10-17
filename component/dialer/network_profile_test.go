@@ -163,18 +163,20 @@ func TestPacketJA4TAndWindowsPacketRewriter(t *testing.T) {
 	require.True(t, afterFp.HeaderChecksumValid, "rewritten IPv4 header checksum must be valid")
 	require.True(t, afterFp.TCPChecksumValid, "rewritten TCP checksum must be valid")
 
-	// 2. Construct a raw IPv4 + TCP SYN packet with MTU=1500 (MSS=1460) and mipstack's default layout (2-4-1-3-1-1-8, ECE|CWR)
+	// 2. Construct a raw IPv4 + TCP SYN packet with MTU=1500 (MSS=1460) and mipstack's default layout (2-4-1-3-1-1-8, ECE|CWR, 24B padded options)
 	rawMipstackSYN, err := hex.DecodeString(
-		"4500003c43214000400600000a00000201010101" + // IPv4: len=60, DF=1, ttl=64
-			"c35101bb1122334400000000a0c2ffff00000000" + // TCP: doff=10, flags=SYN|ECE|CWR(0xc2), win=65535
+		"4500004043214000400600000a00000201010101" + // IPv4: len=64 (0x0040), DF=1, ttl=64
+			"c35101bb1122334400000000b0c2ffff00000000" + // TCP: doff=11 (44B), flags=SYN|ECE|CWR(0xc2), win=65535
 			"020405b4" + // Option 2: MSS = 1460 (0x05b4)
 			"0402" + // Option 4: SACK Permitted
 			"01" + // Option 1: NOP
 			"030308" + // Option 3: Window Scale = 8
 			"0101" + // Option 1, 1: NOP, NOP
-			"080a0102030400000000", // Option 8: Timestamp
+			"080a0102030400000000" + // Option 8: Timestamp
+			"0000", // 2-byte EOL padding to 24B option boundary
 	)
 	require.NoError(t, err)
+	require.Len(t, rawMipstackSYN, 64)
 	beforeMips, ok := InspectPacketJA4T(rawMipstackSYN)
 	require.True(t, ok)
 	require.Equal(t, "65535_2-4-1-3-1-1-8_1460_8", beforeMips.JA4T)
