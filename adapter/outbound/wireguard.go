@@ -272,7 +272,9 @@ func newIPStack(option IPStackOption, localAddresses []netip.Prefix, mtu uint32)
 		if profileActive {
 			if spec.TCPWindowSize > 0 {
 				cfg.TCP.ReceiveBuffer = spec.TCPWindowSize
-				cfg.TCP.MaximumReceiveBuffer = 16 * 1024 * 1024
+				if spec.TCPWindowScale > 0 && spec.TCPWindowScale <= 14 {
+					cfg.TCP.MaximumReceiveBuffer = 65535 << uint(spec.TCPWindowScale)
+				}
 			}
 			if spec.IPv4TTL > 0 {
 				cfg.UDP.HopLimit = spec.IPv4TTL

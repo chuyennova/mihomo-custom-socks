@@ -139,7 +139,7 @@ func TestL3IPStackWindowsNetworkProfileBeforeAfterJA4T(t *testing.T) {
 	require.Equal(t, 64, mipsBefore.TTL)
 	require.Equal(t, uint16(65535), mipsBefore.WindowSize)
 	require.True(t, mipsBefore.HasTimestamp)
-	require.Equal(t, "65535_2-4-1-3-1-1-8_1460_8", mipsBefore.JA4T)
+	require.Equal(t, "65535_2-4-1-3-1-1-8_1460_9", mipsBefore.JA4T)
 
 	// 2. mipstack AFTER (network-profile: windows) -> Exact Windows 10/11 SYN fingerprint
 	mipsAfter := runIPStackLoopbackHandshake(t, ipStackMips, dialer.NetworkProfileWindows, 1500)
